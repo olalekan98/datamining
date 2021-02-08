@@ -1,0 +1,442 @@
+---
+title: "Data-mining- HW 1"
+author: "Olalekan Bello"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  md_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+
+## devtools::install_github('ropensci/rnaturalearthhires')
+
+##loading needed libraries
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(stringr)
+library(lubridate)
+library(rsample)  # for creating train/test splits
+library(caret)
+library(modelr)
+library(parallel)
+library(foreach)
+library(FNN)
+library(gridExtra)
+library(scales)
+library(ggmap)
+library(ggrepel)                      
+library(sf)
+library(maps)
+library(rnaturalearth)  
+library(rnaturalearthdata)
+library(rnaturalearthhires)
+
+```
+
+
+```{r}
+##loading data
+gasprices= read_csv("GasPrices.csv")
+
+```
+
+
+## 1) Data visualization: gas prices  
+
+```{r}
+ggplot(data= gasprices)+
+  geom_boxplot(aes(x= factor(Competitors), y= Price))+ labs(x= "Competitors nearby?", title= "Distribution of gas prices by in Austin by competition")+ theme_bw()
+```
+
+Do gas stations charge more if they lack direct competition in sight? The graph above shows a boxplot of the distribution of gas prices by whether there is competition in sight or not. Where "Y" represents competition and "N" no competition. We can see that gas stations do charge more if there is no competition as prices are more concentrated at higher levels.
+
+
+
+```{r}
+ggplot(data = gasprices)+
+  geom_point(aes(x= Price, y= Income))+
+  labs(title = "Gas Prices vs Local Income in Austin")+ 
+  theme_bw()
+
+```
+
+The richer the area,the higher the gas price? The graph above shows a scatterplot of gas prices on local income in Austin. We can see a positive relationship between the two variables.
+
+
+```{r}
+d1= gasprices %>% group_by(Name) %>% summarize(med_price= median(Price))
+ggplot(data = d1)+ 
+  geom_col(aes(x= Name, y=med_price))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(title="Median Gas Price by brand", x= "Brand", y="Median Price")+
+  theme_bw()
+```
+
+Shell charges more than other brands? The graph above shows a barplot of the median price by brand. From the graph, we see there is little to no evidence of shell charging more.
+
+
+```{r}
+ggplot(data= gasprices)+
+  geom_histogram(aes(x= Price), binwidth = 0.03)+
+  facet_wrap(~Stoplight)+ 
+  labs(title = "Histogram of Gas Prices in Austin by Stoplight", subtitle = "Stoplight Nearby?")+
+  theme(plot.subtitle = element_text(hjust = 0.5))+
+  theme_bw()
+
+```
+
+Do gas stations at stoplights charge more? The graph above shows a histogram of the gas prices in Austin by whether the gas station is at a stoplight or not. From the graph, we see some evidence of this as the distribution is slightly more skewed to the right for gas stations at stoplights
+
+
+
+```{r}
+ggplot(data= gasprices)+
+  geom_boxplot(aes(x= factor(Highway), y= Price))+ labs(x= "Direct Highway Access?", title= "Distribution of gas prices by in Austin by highway access")
+
+```
+Do gas stations with direct highway access charge more? The graph above shows a boxplot of the distribution of gas prices in Austin by highway access. Where "Y" represents highway access and "N" no highway access. We can see that gas stations do charge more if they have direct access to a highway as prices are more concentrated at higher levels.
+
+
+
+## 2) Data visualization: a bike share network (Washington DC)
+
+```{r}
+bikeshare= read_csv("bikeshare.csv")
+
+bikeshare_1= bikeshare %>% group_by(hr) %>% summarize(avg_bikes= mean(total))
+ggplot(bikeshare_1, aes(x= hr, y= avg_bikes, group= 1))+
+  geom_line()+
+  labs(x= "Hour of the day (24hr scale)", y= "Avg bike rentals", title= "Average ridership by hour of the day")
+```
+The graph above shows average ridership by hour of the day. We see that ridership generally rises starting at 5am with peaks around 8am and 4pm and then declines steadily for the rest of the day. This suggests that a good chunk of ridership is driven by people taking bikes as opposed to other means of transport during rush hour. 
+
+
+
+```{r}
+
+bikeshare_2= bikeshare %>% group_by(hr, workingday) %>% summarize(avg_bikes= mean(total))
+bikeshare_2= bikeshare_2 %>% mutate(workingday= ifelse(workingday== 1, "work day", "not work day"))
+
+ggplot(bikeshare_2, aes(x= hr, y= avg_bikes, group= 1))+
+  geom_line()+
+  facet_wrap(~workingday)+
+  labs(x= "Hour of the day (24hr scale)", y= "Avg bike rentals", title= "Average ridership by hour of the day and working day")+theme_bw()
+  
+
+```
+
+The graph above shows the average ridership by hour of the day and by whether it is a working day. Similar, to the previous graph, average ridership on workdays peaks around 8am, declines sharply and then peaks again around 4pm. Ridership on non work days is much smoother as there is a steady rise through the start of the day and a steady decline through the late afternoon to evening.
+
+
+```{r}
+bikeshare_filter<- bikeshare %>% filter(hr == 8)
+bikeshare_filter<- bikeshare_filter %>% mutate(workingday= ifelse(workingday== 1, "work day", "not work day"))
+
+bikeshare_filter_2<- bikeshare_filter %>% group_by(workingday, weathersit) %>% summarize(avg_bikes= mean(total))
+
+ggplot(bikeshare_filter_2, aes(x= weathersit, y= avg_bikes))+
+  geom_col()+
+  facet_wrap(~workingday, ncol= 2)+
+labs(x= "Weather Situation", title = "Average 8am ridership by working day and weather situation", y= "Avg bike rentals")+theme_bw()
+
+```
+
+The weather situation codes are as follows:
+
+    - 1: Clear, Few clouds, Partly cloudy, Partly cloudy
+    - 2: Mist + Cloudy, Mist + Broken clouds, Mist + Few clouds, Mist
+    - 3: Light Snow, Light Rain + Thunderstorm + Scattered clouds, Light Rain + Scattered clouds
+    
+The graph above shows a barplot of average ridership at 8am by working day and weather situation. We see that ridership at 8am is generally lower on non-working days compared to work days. This suggests that a significant number of people ride bikes to work. We also see that average ridership declines as the weather situation worsens.
+
+\newpage
+
+## 3) Data visualization: flights at ABIA
+
+```{r, out.width= "120%", fig.align= "center"}
+airport_data<- read_csv("ABIA.csv")
+airport_codes <- read_csv("airports.csv")
+
+##getting origin codes
+airport_flight_data<- merge(airport_data, y = airport_codes[ , c("iata_code", "latitude_deg", "longitude_deg")], by.x= "Origin", by.y= "iata_code")
+
+airport_flight_data<- airport_flight_data %>% 
+  rename(origin_lat= latitude_deg, origin_lon= longitude_deg)
+
+##getting destination codes
+airport_flight_data<- merge(airport_flight_data, y = airport_codes[ , c("iata_code", "latitude_deg", "longitude_deg")], by.x= "Dest", by.y= "iata_code")
+
+airport_flight_data<- airport_flight_data %>% 
+  rename(des_lat= latitude_deg, des_lon= longitude_deg)
+
+
+
+airport_flight_data<-airport_flight_data %>% dplyr::filter(Origin== "AUS")
+airport_flight_data<- airport_flight_data %>% group_by(Dest) %>% summarize(n_flights= n(), dest_lon= first(des_lon), dest_lat= first(des_lat))
+
+airport_flight_data<-airport_flight_data %>% mutate(rank_popular = row_number(-n_flights)) %>%
+  ungroup() %>%
+  filter(rank_popular <= 10)
+
+airport_flight_data$origin= "AUS"
+airport_flight_data<- merge(airport_flight_data, y = airport_codes[ , c("iata_code", "latitude_deg", "longitude_deg")], by.x= "origin", by.y= "iata_code")
+
+airport_flight_data<- airport_flight_data %>% 
+  rename(origin_lat= latitude_deg, origin_lon= longitude_deg)
+
+
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+usa_states <- ne_states(country = 'United States of America', returnclass = 'sf')
+usa <- subset(world, admin == "United States of America")
+
+
+ggplot() + 
+  geom_sf(data= world)+
+  geom_sf(data= usa_states, fill = 'chartreuse1', alpha = 0.05)+
+  coord_sf(xlim = c(-125, -64), ylim = c(24, 50))+
+  geom_curve(data = airport_flight_data, aes(x = origin_lon, y = origin_lat, xend = dest_lon, yend = dest_lat))+
+   geom_point(data = airport_flight_data, aes(x = dest_lon, y = dest_lat, size = n_flights))+
+  geom_point(data = airport_flight_data, aes(x = origin_lon, y = origin_lat), size = 4, color = 'blue')+
+  theme(panel.background = element_rect(fill = 'azure'), axis.title = element_blank())+
+  geom_label_repel(data = airport_flight_data, nudge_x = 0, nudge_y = -0, label.size = 0.1,
+                   aes(x = dest_lon, y = dest_lat, label = Dest))+
+   geom_label_repel(data = airport_flight_data %>% select(origin, origin_lon, origin_lat) %>% unique(),nudge_x = 0, nudge_y = -0, color = 'blue', aes(x = origin_lon, y = origin_lat, label = origin))+
+  labs(title = 'Top 10 routes departing from Austin-Bergstrom International Aiport in 2008', caption= "Airport codes taken from https://github.com/datasets/airport-codes")+
+  theme(legend.position = "bottom")
+```
+
+We see that the top destinations from Austin are mostly around the mid-west. Outside of that, we see the usual popular destinations such as Los Angeles (LAX), Atlanta (ATL), and New York (JFK)
+
+\newpage
+
+For the purpose of my analysis, I focus on departure delays
+
+```{r, fig.align="center", out.width= "100%"}
+
+airport_data<- read_csv("ABIA.csv")
+airport_flight_data<- merge(airport_data, y = airport_codes[ , c("iata_code", "latitude_deg", "longitude_deg")], by.x= "Origin", by.y= "iata_code")
+
+airport_flight_data<- airport_flight_data %>% 
+  rename(origin_lat= latitude_deg, origin_lon= longitude_deg)
+
+##getting destination codes
+airport_flight_data<- merge(airport_flight_data, y = airport_codes[ , c("iata_code", "latitude_deg", "longitude_deg")], by.x= "Dest", by.y= "iata_code")
+
+airport_flight_data<- airport_flight_data %>% 
+  rename(des_lat= latitude_deg, des_lon= longitude_deg)
+
+
+airport_data_delay<- airport_flight_data %>% group_by(Origin) %>% summarize(avg_delay= mean(DepDelay, na.rm =  T), origin_lon= first(origin_lon), origin_lat= first(origin_lat))
+
+airport_data_delay<-airport_data_delay %>% mutate(rank_delay = row_number(-avg_delay)) %>%
+  ungroup() %>%
+  filter(rank_delay <= 10)
+
+
+ggplot() + 
+  geom_sf(data= world)+
+  geom_sf(data= usa_states, fill = 'chartreuse1', alpha = 0.05)+
+  coord_sf(xlim = c(-125, -64), ylim = c(24, 50))+
+   geom_point(data = airport_data_delay, aes(x = origin_lon, y = origin_lat, size = avg_delay))+
+  theme(panel.background = element_rect(fill = 'azure'), axis.title = element_blank())+
+  geom_label_repel(data = airport_data_delay, nudge_x = 0, nudge_y = -0, label.size = 0.1,
+                   aes(x = origin_lon, y = origin_lat, label = Origin ))+
+  labs(title = 'Top 10 route origins with the highest average departure delays in 2008', caption= "Airport codes taken from https://github.com/datasets/airport-codes")+
+  theme(legend.position = "bottom")+
+  labs(size= "avg delay in minutes")
+
+
+
+```
+From this, we see that the origins with the highest average delay in minutes are heavily concentrated around the east coast and the mid-west.
+
+
+
+```{r}
+
+airport_data<- read_csv("ABIA.csv")
+airlines <- read_csv("airlines.csv")
+
+##converting deptime to actual time
+airport_data$DepTime<- str_pad(as.character(airport_data$DepTime), 4, side="left", pad="0")
+airport_data$Month<- str_pad(as.character(airport_data$Month), 2, side="left", pad="0")
+airport_data$DayofMonth<- str_pad(as.character(airport_data$DayofMonth), 2, side="left", pad="0")
+
+airport_data$time<- as.POSIXct(paste0(as.character(airport_data$Year), "-", as.character(airport_data$Month), "-", as.character(airport_data$DayofMonth), as.character(airport_data$DepTime)), format= "%Y-%m-%d %H%M")
+
+##getting hr of the day
+airport_data$hour<- lubridate::hour(airport_data$time)
+airport_data<- filter(airport_data, !is.na(hour))
+airport_data$hr_12<-format(airport_data$time, format= "%I:00%p")
+
+```
+
+
+```{r}
+##adding airline names
+airport_data<- merge(airport_data, airlines, by.x= "UniqueCarrier", by.y= "Code")
+airport_data<- airport_data %>% rename(airline= Description)
+
+airport_data_delay<- airport_data %>% group_by(airline, hr_12) %>% summarize(avg_delay= round(mean(DepDelay, na.rm = T), 2))
+
+airport_data_delay$hr_12<- as.POSIXct(airport_data_delay$hr_12, format= "%I:00%p")
+
+```
+
+
+
+```{r}
+
+ggplot(airport_data_delay)+
+  geom_line(aes(x = hr_12, y = avg_delay, color= airline), size = 0.5) +
+  geom_point(aes(x = hr_12, y = avg_delay, color= airline), size = 0.7)+
+  facet_wrap(~airline, ncol = 4)+
+  scale_x_datetime(date_labels = "%I:00%p", breaks= "8 hours")+ 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "none")+
+  labs(x= "Time", title= "Average delay in minutes of Austin flights by airline", caption= "Airlines taken from https://github.com/hadley/nycflights13")
+
+  
+```
+
+We see that the average departure delays are usually in the very early hours of the day around between 12am - 5am. Delays are usually at their lowest in the middle of the day and this pattern is mostly consistent across airlines. 
+
+
+
+## 4) K-nearest neighbors 
+
+
+```{r}
+##loading data
+sclass<-read.csv('sclass.csv')
+
+##getting the relevant trim levels
+
+sclass350<- filter(sclass, trim== 350)
+sclass65<-  filter(sclass, trim== "65 AMG")
+
+##splitting into training and test
+sclass350_split = initial_split(sclass350, prop=0.9)
+sclass350_train = training(sclass350_split)
+sclass350_test  = testing(sclass350_split)
+
+sclass65_split = initial_split(sclass65, prop=0.9)
+sclass65_train = training(sclass65_split)
+sclass65_test  = testing(sclass65_split)
+
+
+```
+
+
+
+```{r, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+revlog_trans <- function(base = exp(1)){
+    ## Define the desired transformation.
+    trans <- function(x){
+                 -log(x, base)
+                }
+    ## Define the reverse of the desired transformation
+    inv <- function(x){
+                 base^(-x)
+                }
+    ## Creates the transformation
+    trans_new(paste("revlog-", base, sep = ""),
+              trans, ## The transformation function (can be defined using anonymous functions)
+              inv,  ## The reverse of the transformation
+              log_breaks(base = base), ## default way to define the scale breaks
+              domain = c(1e-100, Inf) ## The domain over which the transformation is valued
+             )
+    }
+
+
+sclass350_test = arrange(sclass350_test, mileage)
+
+k_grid = unique(round(exp(seq(log(370), log(2), length=100))))
+rmse_grid_out = foreach(k = k_grid, .combine='c') %do% {
+  knn_model = knnreg(price~ mileage, data= sclass350_train, k = k)
+  rmse(knn_model, sclass350_test)
+}
+
+rmse_grid_out = data.frame(K = k_grid, RMSE = rmse_grid_out)
+
+p_out = ggplot(data=rmse_grid_out) + 
+  theme_bw(base_size = 10) + 
+  geom_path(aes(x=K, y=RMSE), size=0.5) + 
+  scale_x_continuous(trans=revlog_trans(base = 10))+
+  ggtitle("K vs RMSE (Sclass350)")
+
+ind_best = which.min(rmse_grid_out$RMSE)
+k_best = k_grid[ind_best]
+
+p_out= p_out+ 
+      geom_vline(xintercept=k_best, color='darkgreen', size=1)
+
+
+##doing the same for sclass 65
+
+sclass65_test = arrange(sclass65_test, mileage)
+
+k_grid = unique(round(exp(seq(log(250), log(2), length=50))))
+rmse_grid_out_2 = foreach(k = k_grid, .combine='c') %do% {
+  knn_model = knnreg(price~ mileage, data= sclass65_train, k = k)
+  rmse(knn_model, sclass65_test)
+}
+
+rmse_grid_out_2 = data.frame(K = k_grid, RMSE = rmse_grid_out_2)
+
+p_out_2 = ggplot(data=rmse_grid_out_2) + 
+  theme_bw(base_size = 10) + 
+  geom_path(aes(x=K, y=RMSE, color= "testset"), size=0.5) + 
+  scale_x_continuous(trans=revlog_trans(base = 10))+
+  scale_color_manual(name= "RMSE", values = c(testset= "black"))+
+  ggtitle("K vs RMSE (Sclass 65 AMG)")
+
+ind_best_2 = which.min(rmse_grid_out_2$RMSE)
+k_best_2 = k_grid[ind_best_2]
+
+p_out_2 = p_out_2+ 
+      geom_vline(xintercept=k_best_2, color='darkgreen', size=1)
+
+grid.arrange(p_out, p_out_2, ncol=2)
+
+
+
+```
+
+
+```{r}
+knn_model= knnreg(price~ mileage, data= sclass350_train, k= k_best)
+knn_pred = function(x) {
+  predict(knn_model, newdata=data.frame(mileage=x))
+}
+
+knn_model_2= knnreg(price~ mileage, sclass65_train, k= k_best_2)
+knn_pred_2 = function(x) {
+  predict(knn_model_2, newdata=data.frame(mileage=x))
+}
+
+
+p_base= ggplot(sclass350)+
+  geom_point(mapping= aes(x= mileage, y= price), color= "darkgrey")+
+  theme_bw()+ stat_function(fun= knn_pred, color='red', size=1.5, n= 101 )+
+  labs(title= paste("K=", as.character(k_best), " (Sclass350)", sep= ""))
+  
+  
+p_base_2= ggplot(sclass65)+
+  geom_point(mapping= aes(x= mileage, y= price), color= "darkgrey")+
+  theme_bw()+ stat_function(fun= knn_pred_2, color='red', size=1.5, n=101)+
+  labs(title= paste("K=", as.character(k_best_2), " (Sclass65)", sep = ""))+
+ scale_color_manual(values = "red", labels= "Predicted price")
+  
+grid.arrange(p_base, p_base_2, top= "Scatter plot with K nearest neighbors prediction", ncol=2)
+
+```
+
+
+The Sclass350 yields a higher optimal value of K. This could possibly be because we have more observations for the Sclass350 and so we need a larger K to appropriately fit the model.
+
