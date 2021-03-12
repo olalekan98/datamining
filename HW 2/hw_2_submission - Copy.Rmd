@@ -1,0 +1,362 @@
+---
+title: "Data-mining- HW 2"
+author: "Olalekan Bello"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  pdf_document: default
+  md_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+
+library(mosaic)
+library(tidyverse)
+library(rsample)
+library(ggplot2)
+library(modelr)
+library(parallel)
+library(foreach)
+library(FNN)
+library(caret)
+library(readr)
+library(stargazer)
+
+```
+
+## Problem 1: visualization
+
+```{r}
+library(lubridate)
+
+capmetro_UT= read_csv("capmetro_UT.csv")
+capmetro_UT = mutate(capmetro_UT,
+               day_of_week = factor(day_of_week,
+                 levels=c("Mon", "Tue", "Wed","Thu", "Fri", "Sat", "Sun")),
+               month = factor(month,
+                 levels=c("Sep", "Oct","Nov")))
+
+capmetro_average<- capmetro_UT %>% group_by(hour_of_day, day_of_week, month) %>% summarise(avg_board= mean(boarding))
+
+ggplot(capmetro_average, aes(x= hour_of_day, y= avg_board, group= month, colour= month))+
+  geom_line()+
+  facet_wrap(~day_of_week)+ labs(x= "hour of day", y= "Average boarding", title = "Average boarding of Capital Metro by hour, month and day")+ theme_bw()
+```
+
+We see that the peak hours look fairly consistent across week days usually around 4-5pm. This makes sense as this is when most people would be leaving work. Average boardings in September look lower probably because of the labor day holiday on the first Monday of September. Average boardings on Weds/Thurs/Fri on November look lower probably because of the colder weather.
+
+
+```{r}
+capmetro_UT %>%
+    group_by(timestamp, hour_of_day) %>%
+    mutate(avg_boarding = mean(boarding)) %>%
+    ggplot() +
+    geom_point(aes(x = temperature, y = avg_boarding, color = weekend)) +
+    scale_x_continuous(expand = c(0,0), limits = c(30, 100), 
+                       breaks = seq(40, 100, 20)) +
+    scale_y_continuous(expand = c(0,0), limits = c(0, 300)) +
+    facet_wrap(. ~ hour_of_day, scales = "free") +  
+    labs(x = "Temperature", y = "Boarding",
+         title = "Average bus ridership around UT by temperature",
+         caption = "Source: Capital Metro") + 
+    theme_bw()+
+  theme(legend.position="bottom")
+
+
+```
+
+
+
+There doesn't seem to be a particularly noticeable effect of temperatures on ridership holding hour of the day and weekend status. Ridership looks to be "fairly" constant across temperatures.
+
+
+## Saratoga house prices
+
+We want to predict home prices in Saratoga, NY using data on a number of home features. The features include the number of bedrooms, number of bathrooms, the lot size (acres) and the type of heating, age of house (years), value of land (US dollars), living area (square feet), percent of neighborhood that graduated college, number of fireplaces, number of bathrooms (half bathrooms have no shower or tub), number of rooms, heating type of fuel used for heating, type of sewer system, whether property includes waterfront, whether the property is a new construction, whether the house has central air
+
+
+We do this in two ways. The first being fitting a linear model using ordinary least squares and the second being using KNN nearest neighbors. 
+
+These are the following linear models we use:
+
+      - price against bedrooms, bathrooms and lot size
+      
+      - price against lot size, age, living area, bedrooms, fireplaces, bathrooms, rooms, heating,            fuel, and central air (medium model)
+      
+      - price against the all the features of the previous model and all pairwise interactions of them
+      
+      -  price against lot size, age, living area, bedrooms, fireplaces, bathrooms, rooms, heating,           fuel, central air, new construction and landvalue
+      
+      - the log(price) against  the log(livingArea), log(lotSize + 1), log(age + 1), log(landValue) bathrooms,  bedrooms, rooms, heating, fuel, centralAir, fireplaces and new construction. logarithms allow us to deal with outliers in values.
+      
+      
+
+```{r, eval= F}
+data("SaratogaHouses")
+
+rmse_out_1= foreach(i=1:10, .combine='c') %do% {
+saratoga_split =  initial_split(SaratogaHouses, prop=0.8)
+saratoga_train = training(saratoga_split)
+saratoga_test  = testing(saratoga_split)
+  
+# Fit to the training data
+lm1 = lm(price ~ lotSize + bedrooms + bathrooms, data=saratoga_train)
+modelr::rmse(lm1, saratoga_test)
+
+}
+
+
+rmse_out_2= foreach(i=1:10, .combine='c') %do% {
+saratoga_split =  initial_split(SaratogaHouses, prop=0.8)
+saratoga_train = training(saratoga_split)
+saratoga_test  = testing(saratoga_split)
+
+lm2 = lm(price ~ . - pctCollege - sewer - waterfront - landValue - newConstruction, data=saratoga_train)
+modelr::rmse(lm2, saratoga_test)
+
+}
+
+
+rmse_out_3= foreach(i=1:10, .combine='c') %do% {
+saratoga_split =  initial_split(SaratogaHouses, prop=0.8)
+saratoga_train = training(saratoga_split)
+saratoga_test  = testing(saratoga_split)
+
+lm3 = lm(price ~ (. - pctCollege - sewer - waterfront - landValue - newConstruction)^2, data=saratoga_train)
+modelr::rmse(lm3, saratoga_test)
+
+}
+
+
+```
+
+
+```{r, eval= F}
+
+##manual RMSE function because I use logs here
+RMSE <- function(model, dataset) {
+  pred_price <- exp(predict(model, dataset))
+  resids <- dataset$price - pred_price
+  rmse <- sqrt(mean(resids^2)) 
+  rmse
+}
+
+
+rmse_out_final_1= foreach(i=1:10, .combine='c') %do% {
+saratoga_split =  initial_split(SaratogaHouses, prop=0.8)
+saratoga_train = training(saratoga_split)
+saratoga_test  = testing(saratoga_split)
+  
+# Fit to the training data
+lm_final_1 = lm(log(price) ~ log(livingArea) + log(lotSize + 1) + log(age + 1) + bathrooms + bedrooms + rooms + heating + fuel + centralAir + fireplaces + newConstruction,                         data=saratoga_train)
+RMSE(lm_final_1, saratoga_test)
+
+}
+
+
+rmse_out_final_2= foreach(i=1:10, .combine='c') %do% {
+saratoga_split =  initial_split(SaratogaHouses, prop=0.8)
+saratoga_train = training(saratoga_split)
+saratoga_test  = testing(saratoga_split)
+  
+# Fit to the training data
+lm_final_2 = lm(log(price) ~ log(livingArea) + log(lotSize + 1) + log(age + 1) +  log(landValue)+ bathrooms + bedrooms + rooms + heating + fuel + centralAir + fireplaces + newConstruction,                         data=saratoga_train)
+RMSE(lm_final_2, saratoga_test)
+
+}
+
+
+
+rmse_out_2= foreach(i=1:10, .combine='c') %do% {
+saratoga_split =  initial_split(SaratogaHouses, prop=0.8)
+saratoga_train = training(saratoga_split)
+saratoga_test  = testing(saratoga_split)
+
+lm2 = lm(price ~ . - pctCollege - sewer - waterfront - landValue - newConstruction, data=saratoga_train)
+modelr::rmse(lm2, saratoga_test)
+
+}
+
+
+
+
+
+rmse_out_final_3= foreach(i=1:10, .combine='c') %do% {
+saratoga_split =  initial_split(SaratogaHouses, prop=0.8)
+saratoga_train = training(saratoga_split)
+saratoga_test  = testing(saratoga_split)
+  
+# Fit to the training data
+lm_final_3 = lm(log(price) ~ log(livingArea) + log(lotSize + 1) + log(age + 1) +  log(landValue)+ bathrooms + bedrooms + rooms + heating + fuel + centralAir + fireplaces + newConstruction + waterfront, data=saratoga_train)
+RMSE(lm_final_3, saratoga_test)
+
+}
+
+```
+
+RMSE for the different models
+```{r}
+##
+```
+
+
+## KNN model
+
+```{r, eval= F}
+k_grid = seq(3, 51, by=2)
+
+
+rmse_knn_out = foreach(i=1:10, .combine='rbind') %dopar% {
+  saratoga_split =  initial_split(SaratogaHouses, prop=0.8)
+  saratoga_train = training(saratoga_split)
+  saratoga_test  = testing(saratoga_split)
+  this_rmse = foreach(k = k_grid, .combine='c') %do% {
+    # train the model and calculate RMSE on the test set
+    knn_model = knnreg(log(price) ~ log(livingArea) + log(lotSize + 1) + log(age + 1) +  log(landValue)+ bathrooms + bedrooms + rooms + heating + fuel + centralAir + fireplaces + newConstruction + waterfront, data=saratoga_train, k = k, use.all=TRUE)
+    RMSE(knn_model, saratoga_test)
+  }
+  data.frame(k=k_grid, rmse=this_rmse)
+}
+rmse_knn_out = arrange(rmse_knn_out, k)
+
+ggplot(rmse_knn_out) + geom_boxplot(aes(x=factor(k), y=rmse)) + theme_bw(base_size=7)
+
+```
+
+
+
+
+## German credit
+
+```{r}
+german_credit<- read_csv("german_credit.csv")
+german_credit_avg<- german_credit %>% group_by(history) %>% summarize(avg_default= mean(Default))
+
+
+ggplot(data =  german_credit_avg, aes(x= history, y= avg_default))+
+  geom_col()+ labs(y= "average default probability", title= "Average default probability by credit history")+ theme_bw()
+```
+```{r}
+credit_glm<-glm(Default ~ duration + amount + installment + age + history + purpose + foreign, family = "binomial", data = german_credit)
+coef(credit_glm) %>% round(5)
+```
+
+From the bar plot, we see that people with poor or terrible credit history have lower average default rates. Similarly, in the regression we find the same thing where having a poor or terrible history reduces the probability of default. There is probably a selection bias problem with this dataset. About 91% of the data are people with poor/terrible history . An important assumption for linear regression is random sampling of observations and this applies to the logistic regression as well. Also, given that the data is generated with a retrospective case control, there are likely issues with the timing because defaulting affects your credit history 
+
+Also, there are issues of confounding. People with terrible/poor histories are less likely going to get a loan in the first place and even if they can, it would usually be in small amounts making defaults less likely.No I don't think this dataset is suitable for building a predictive model of defaults. If a random sample with present data would not be feasible then it might be helpful to consider using an instrumental variables approach  
+
+
+```{r}
+hotel_devs<-read_csv("hotels_dev.csv")
+
+
+hotel_devs$month<- lubridate::month(hotel_devs$arrival_date, label= TRUE)
+hotel_devs$year<-  lubridate::year(hotel_devs$arrival_date)
+hotel_devs$day<-   lubridate::wday(hotel_devs$arrival_date, label= T)
+hotel_devs$is_weekend<- ifelse(hotel_devs$day == "Sun" | hotel_devs$day == "Sat", 1, 0)
+hotel_devs$is_weekday<- ifelse(hotel_devs$is_weekend== 0, 1, 0)
+hotel_devs <- hotel_devs %>% mutate_at(c("average_daily_rate", "lead_time"), ~(scale(.) %>% as.vector))
+
+
+hotel_split<- initial_split(hotel_devs, prop= 0.8)
+hotel_train<- training(hotel_split)
+hotel_test<- testing(hotel_split)
+
+baseline_1<-glm(children ~ market_segment + adults + customer_type, data=hotel_train, family = "binomial")
+baseline_2<- glm(children ~ . - arrival_date - month - year - day - is_weekend - is_weekday,  data = hotel_train, family = "binomial")
+
+baseline_3<- glm(children ~ . -arrival_date - is_weekday -is_weekend, data = hotel_train, family= "binomial")
+
+
+phat_test_hotel1 = predict(baseline_1, hotel_test, type = "response")
+yhat_test_hotel1 = ifelse(phat_test_hotel1 > 0.5, 1, 0)
+confusion_out_1 = table(y = hotel_test$children, yhat = yhat_test_hotel1)
+confusion_out_1
+
+
+phat_test_hotel2 = predict(baseline_2, hotel_test, type = "response")
+yhat_test_hotel2 = ifelse(phat_test_hotel2 > 0.5, 1, 0)
+confusion_out_2 = table(y = hotel_test$children, yhat = yhat_test_hotel2)
+confusion_out_2
+
+phat_test_hotel3 = predict(baseline_3, hotel_test, type = "response")
+yhat_test_hotel3 = ifelse(phat_test_hotel3 > 0.5, 1, 0)
+confusion_out_3 = table(y = hotel_test$children, yhat = yhat_test_hotel3)
+confusion_out_3
+
+
+sum(diag(confusion_out_2))/sum(confusion_out_2)
+
+sum(diag(confusion_out_3)/sum(confusion_out_3))
+
+
+
+
+```
+
+
+
+```{r, eval= F}
+hotel_val<-read_csv("hotels_val.csv")
+
+hotel_val$month<- lubridate::month(hotel_val$arrival_date, label= TRUE)
+hotel_val$year<-  lubridate::year(hotel_val$arrival_date)
+hotel_val$day<-   lubridate::wday(hotel_val$arrival_date, label= T)
+hotel_val$is_weekend<- ifelse(hotel_val$day == "Sun" | hotel_val$day == "Sat", 1, 0)
+hotel_val$is_weekday<- ifelse(hotel_val$is_weekend== 0, 1, 0)
+hotel_val <- hotel_val %>% mutate_at(c("average_daily_rate", "lead_time"), ~(scale(.) %>% as.vector))
+
+best_logit_hotel<- glm(children ~ . -arrival_date - is_weekday -is_weekend, data = hotel_val, family= "binomial")
+
+
+```
+
+
+```{r, eval= F}
+library(foreach)
+phat_test_logit_hotel = predict(best_logit_hotel, hotel_val, type='response')
+
+thresh_grid = seq(0.95, 0.05, by=-0.005)
+roc_curve_spam = foreach(thresh = thresh_grid, .combine='rbind') %do% {
+  yhat_test_logit_hotel = ifelse(phat_test_logit_hotel >= thresh, 1, 0)
+
+  # FPR, TPR for linear model
+  confusion_out_logit = table(y =  hotel_val$children, yhat = yhat_test_logit_hotel)
+  out_logit = data.frame(model = "logit",
+                       TPR = confusion_out_logit[2,2]/sum(hotel_val$children==1),
+                       FPR = confusion_out_logit[1,2]/sum(hotel_val$children==0))
+  
+  out_logit
+} %>% as.data.frame()
+
+ggplot(roc_curve_spam) + 
+  geom_line(aes(x=FPR, y=TPR)) + 
+  labs(title="ROC curves: logit model") +
+  theme_bw(base_size = 10)
+```
+
+
+```{r, eval= F}
+N = nrow(hotel_val)
+K = 20
+fold_id = rep_len(1:K, N)  # repeats 1:K over and over again
+fold_id = sample(fold_id, replace=FALSE) 
+
+
+predict_save<-data.frame(matrix(ncol=3,nrow=20, dimnames=list(NULL, c("fold", "predicted", "actual"))))
+
+
+for(i in 1:K) {
+  split_id= which(fold_id == i)
+    best_logit_hotel= glm(children ~ ., data=hotel_val[split_id , !(names(data) %in% c('deposit_type', "arrival_date", "is_weekend", "is_weekday"))], family="binomial")
+    yhat_test = predict(best_logit_hotel, newdata=hotel_val[split_id,], type = "response")
+    predict_save$fold[i]<- i
+    predict_save$predicted[i]<- sum(yhat_test)
+    predict_save$actual[i]<- sum(hotel_val[split_id,]$children)
+}
+ 
+
+```
+
