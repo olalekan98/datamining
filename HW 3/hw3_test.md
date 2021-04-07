@@ -36,7 +36,7 @@ We want to build a predictive model of rental income, and to use this
 model to quantify the average change in rental income per square foot
 associated with green certification.
 
-1.  Data and model
+2.  Data and model
 
 We use a data set on green buildings in the United States. It contains
 data on 7,894 commercial rental properties across the country and of
@@ -64,7 +64,9 @@ our part of our outcome variable (rent and leasing rate). We then use
 the root mean squared error (rmse) on a test portion of the data as a
 measure of the performance of these models.
 
-1.  Results
+[1] <https://en.wikipedia.org/wiki/Akaike_information_criterion>
+
+3.  Results
 
 The figure below shows the rmse for the different models below. We see
 that the forward model performs slightly better than the baseline and
@@ -102,7 +104,7 @@ calculations as follows since we use logarithms
     ## green_rating 
     ##     1.129884
 
-1.  Conclusion
+4.  Conclusion
 
 We set out to build a model that allows us to determine the effect of
 having a green rating (either LEED or EnergyStar). We used a variety of
@@ -122,7 +124,7 @@ amenities.
 We want to build a predictive model of median house values in
 California.
 
-1.  Data and model
+2.  Data and model
 
 We use a census-tract level dataset on residential housing in the state.
 The data contains 20,640 records of median house values along with other
@@ -146,7 +148,7 @@ additional feature.
 
 ![](hw3_test_files/figure-markdown_strict/unnamed-chunk-8-1.png)
 
-1.  Results
+3.  Results
 
 The figure below shows the root mean squared error for our different
 model types. We see that the models with the distance to coast variable
@@ -167,4 +169,4 @@ model as well. The plot below shows these on a map of California
 
 ![](resid_plot.png)
 
-[1] <https://en.wikipedia.org/wiki/Akaike_information_criterion>
+
